@@ -71,6 +71,7 @@ module.exports = class WyzeSwitch extends WyzeAccessory {
               break;
             case "double_press_type":
               this.double_press_type = props[prop];
+              break;
             case "triple_press_type":
               this.triple_press_type = props[prop];
               break;
