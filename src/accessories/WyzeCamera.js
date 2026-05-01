@@ -1,5 +1,6 @@
-const { Service, Characteristic } = require("../types");
+const { Service, Characteristic, CameraController } = require("../types");
 const WyzeAccessory = require("./WyzeAccessory");
+const WyzeCameraStreamingDelegate = require("./WyzeCameraStreamingDelegate");
 const enums = require("../enums");
 
 const noResponse = new Error("No Response");
@@ -34,6 +35,8 @@ module.exports = class WyzeCamera extends WyzeAccessory {
         .getCharacteristic(Characteristic.On)
         .onGet(this.handleOnGetPrivacySwitch.bind(this))
         .onSet(this.handleOnSetPrivacySwitch.bind(this));
+
+      this.configureStreaming();
 
       if (this.cameraAccessoryAttached()) {
         if (
@@ -517,5 +520,31 @@ module.exports = class WyzeCamera extends WyzeAccessory {
       this.plugin.config.floodLightAccessory?.find((d) => d === this.mac) ||
       this.plugin.config.notificationAccessory?.find((d) => d === this.mac)
     );
+  }
+
+  configureStreaming() {
+    const streamConfig = this.plugin.getCameraStreamConfig(this.mac);
+
+    if (!streamConfig || this.cameraController) {
+      return;
+    }
+
+    if (this.plugin.config.pluginLoggingEnabled) {
+      this.plugin.log(
+        `[Camera] [Stream] Adding camera stream for ${this.mac} (${this.display_name})`
+      );
+    }
+
+    this.streamingDelegate = new WyzeCameraStreamingDelegate(
+      this.plugin,
+      this,
+      streamConfig
+    );
+    this.cameraController = new CameraController({
+      cameraStreamCount: streamConfig.streamCount || 2,
+      delegate: this.streamingDelegate,
+      streamingOptions: this.streamingDelegate.streamingOptions,
+    });
+    this.homeKitAccessory.configureController(this.cameraController);
   }
 };

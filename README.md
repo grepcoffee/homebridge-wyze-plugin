@@ -27,7 +27,7 @@ After you have done that if you feel like my work has been valuable to you I wel
 - Tempeature Sensor (Status / Battery)
 - Leak Sensor (Status / Battery)
 - Lock (Battery / Door Status / Control)
-- Camera v2, v3, Outdoor Cam, PamCam (on/off, Siren, Floodlight, Garage Door)
+- Camera v2, v3, Outdoor Cam, PamCam (on/off, video streaming with RTSP/HTTP/Wyze Bridge, Siren, Floodlight, Garage Door)
 - Wall Switch
 - HMS
 - Thermostat
@@ -54,7 +54,17 @@ Use the settings UI in Homebridge Config UI X to configure your Wyze account, or
       "garageDoorAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
       "spotLightAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
       "alarmAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
-      "notificationAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"]}
+      "notificationAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
+      "videoProcessor": "ffmpeg",
+      "cameraStreams": [
+        {
+          "mac": "MAC_ADDRESS_1",
+          "source": "rtsp://user:password@camera-host/live",
+          "stillImageSource": "rtsp://user:password@camera-host/live",
+          "rtspTransport": "tcp",
+          "audio": false
+        }
+      ]}
   ]
 }
 ```
@@ -90,6 +100,8 @@ Once you have the API key, you can use it in your script to get the access token
 * **`persistPath`** &ndash; If no `persistPath` is specified, a default value will be used.
 * **`refreshTokenTimerEnabled`** &ndash; If no `refreshTokenTimerEnabled` is specified, a default value will be used.
 * **`lowBatteryPercentage`** &ndash; Defines when to show devices with low battery (e.g., `"lowBatteryPercentage": 30`). Defaults to 30%.
+* **`videoProcessor`** &ndash; Path to `ffmpeg`. Leave this as `"ffmpeg"` when Homebridge can already run ffmpeg from its PATH.
+* **`cameraStreams`** &ndash; Optional list of camera stream sources keyed by MAC address. Wyze does not provide a stable public live-video endpoint through the account API, so this plugin expects an RTSP/HTTP input such as official RTSP firmware, a local stream from `docker-wyze-bridge`, or another camera bridge. Each entry supports `mac`, `source`, optional `stillImageSource`, optional `rtspTransport`, optional `videoProcessor`, optional `streamCount`, and `audio`. Audio defaults to disabled because many packaged ffmpeg builds do not include the HomeKit-compatible AAC ELD encoder.
 
 ## Other Info
 
