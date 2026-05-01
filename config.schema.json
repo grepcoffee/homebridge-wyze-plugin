@@ -25,6 +25,7 @@
         "title": "Password",
         "description": "The password used for your Wyze account",
         "type": "string",
+        "format": "password",
         "default": "",
         "required": true
       },
@@ -32,12 +33,14 @@
         "title": "Key ID",
         "description": "API Key/ID available from the official Wyze Portal https://developer-api-console.wyze.com",
         "type": "string",
+        "format": "password",
         "required": true
       },
       "apiKey": {
         "title": "API Key",
         "description": "API Key/ID available from the official Wyze Portal https://developer-api-console.wyze.com/)",
         "type": "string",
+        "format": "password",
         "required": true
       },
       "refreshInterval": {
@@ -142,6 +145,80 @@
         "items": {
           "title": "Device MAC Address of camera you want to control the Notification Switch",
           "type": "string"
+        },
+        "condition": {
+          "functionBody": "return model.showAdvancedOptions === true;"
+        }
+      },
+      "videoProcessor": {
+        "title": "Video Processor",
+        "description": "Path to ffmpeg. Leave as ffmpeg when it is available in Homebridge's PATH.",
+        "type": "string",
+        "default": "ffmpeg",
+        "condition": {
+          "functionBody": "return model.showAdvancedOptions === true;"
+        }
+      },
+      "cameraStreams": {
+        "type": "array",
+        "title": "Wyze Camera Streams",
+        "description": "Optional RTSP, HTTP, or Wyze Bridge stream inputs to expose selected cameras as HomeKit video cameras.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "mac": {
+              "title": "Camera MAC Address",
+              "type": "string",
+              "required": true
+            },
+            "source": {
+              "title": "Stream URL",
+              "description": "RTSP or HTTP video source, for example rtsp://user:password@camera/live or a wyze-bridge stream URL.",
+              "type": "string",
+              "format": "password",
+              "required": true
+            },
+            "stillImageSource": {
+              "title": "Snapshot URL",
+              "description": "Optional image or video source for HomeKit snapshots. Defaults to the stream URL.",
+              "type": "string",
+              "format": "password"
+            },
+            "audio": {
+              "title": "Enable Audio",
+              "description": "Disable this if your ffmpeg build does not include audio codecs required by HomeKit.",
+              "type": "boolean",
+              "default": false
+            },
+            "rtspTransport": {
+              "title": "RTSP Transport",
+              "description": "Transport to use for RTSP sources. TCP is usually more reliable for HomeKit streaming.",
+              "type": "string",
+              "default": "tcp",
+              "oneOf": [
+                {
+                  "title": "TCP",
+                  "enum": ["tcp"]
+                },
+                {
+                  "title": "UDP",
+                  "enum": ["udp"]
+                }
+              ]
+            },
+            "streamCount": {
+              "title": "Concurrent Streams",
+              "type": "integer",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 4
+            },
+            "videoProcessor": {
+              "title": "Video Processor",
+              "description": "Optional per-camera ffmpeg path.",
+              "type": "string"
+            }
+          }
         },
         "condition": {
           "functionBody": "return model.showAdvancedOptions === true;"
