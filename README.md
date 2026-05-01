@@ -1,115 +1,269 @@
-# This plugin adds support for Wyze Smart Home devices to [Homebridge](https://github.com/homebridge/homebridge).
-[![verified-by-homebridge](https://badgen.net/badge/homebridge/verified/purple)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
-[![certified-hoobs-plugin](https://badgen.net/badge/HOOBS/certified/yellow)](https://plugins.hoobs.org/plugin/homebridge-wyze-smart-home)
-[![npm](https://img.shields.io/npm/dt/homebridge-wyze-smart-home)](https://www.npmjs.com/package/homebridge-wyze-smart-home)
-[![npm](https://img.shields.io/npm/v/homebridge-wyze-smart-home.svg?style=flat-square)](https://www.npmjs.com/package/homebridge-wyze-smart-home)
-[![GitHub last commit](https://img.shields.io/github/last-commit/jfarmer08/homebridge-wyze-smart-home)](https://github.com/jfarmer08/homebridge-wyze-smart-home)
-[![Chat](https://img.shields.io/discord/1134601590762913863)](https://discord.gg/Mjkpq2x9)
+# Homebridge Wyze Plugin Fork
 
-[![homebridge-wyze-smart-home: Wyze Connected Home plugin for Homebridge](https://github.com/jfarmer08/homebridge-wyze-smart-home/blob/main/logo.png?raw=true)](https://github.com/jfarmer08/homebridge-wyze-smart-home)
+This repository is a fork of [jfarmer08/homebridge-wyze-smart-home](https://github.com/jfarmer08/homebridge-wyze-smart-home).
 
-[Major Feature Backlog/Status](https://github.com/jfarmer08/homebridge-wyze-smart-home/discussions/224)
+This fork keeps the original Wyze Smart Home device support and adds codebase-specific work around camera streaming, safer logging, faster accessory lookup, and Node 24 compatibility.
 
+## What This Plugin Does
 
-# Funding   [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=flat-square&maxAge=2592000)](https://www.paypal.com/paypalme/AllenFarmer) [![Donate](https://img.shields.io/badge/Donate-Venmo-blue.svg?style=flat-square&maxAge=2592000)](https://venmo.com/u/Allen-Farmer) [![Donate](https://img.shields.io/badge/Donate-Cash_App-blue.svg?style=flat-square&maxAge=2592000)](https://cash.app/$Jfamer08)
-If you like what I have done here and want to help I would recommend that you firstly look into supporting Homebridge. None of this could happen without them.
+This is a Homebridge platform plugin with the platform alias `WyzeSmartHome`. It signs in to a Wyze account through the unofficial Wyze API library, discovers supported Wyze devices, and exposes them to HomeKit as Homebridge accessories.
 
-After you have done that if you feel like my work has been valuable to you I welcome your support through Paypal, Venmo or Cash App.
+The plugin polls Wyze for device state, updates HomeKit characteristics, and sends control requests back through the Wyze API when a HomeKit value changes.
+
+Important: this plugin depends on unofficial Wyze API behavior. Wyze can change or block API access without warning.
+
+## Runtime Support
+
+This fork declares support for:
+
+- Homebridge `^1.6.0` or `^2.0.0-beta.0`
+- Node.js `^18.20.4`, `^20.15.1`, or `^24.15.0`
+
+The package entrypoint is:
+
+```text
+src/index.js
+```
+
+The platform name for Homebridge config is:
+
+```text
+WyzeSmartHome
+```
 
 ## Supported Devices
-- Light Bulb
-- Light Strips
-- Color Bulb (Mesh Light)
-- Plug
-- Outdoor Plug
-- V1 & V2 Contact Sensor (Status / Battery)
-- V1 & V2 Motion Sensor (Status / Battery)
-- Tempeature Sensor (Status / Battery)
-- Leak Sensor (Status / Battery)
-- Lock (Battery / Door Status / Control)
-- Camera v2, v3, Outdoor Cam, PamCam (on/off, video streaming with RTSP/HTTP/Wyze Bridge, Siren, Floodlight, Garage Door)
-- Wall Switch
-- HMS
-- Thermostat
 
-For more information about our version updates, please check our [change log](CHANGELOG.md).
+The supported device list comes from `src/enums.js` and the accessory classes in `src/accessories`.
+
+Current supported device groups:
+
+- Wyze plugs and outdoor plugs
+- White bulbs
+- Mesh/color bulbs
+- Light strips
+- Contact sensors
+- Motion sensors
+- Temperature/humidity sensors
+- Leak sensors
+- Locks
+- Lock Bolt v2 / supported common lock models
+- Wall switches
+- HMS gateway, when enabled
+- Thermostat
+- Wyze cameras
+
+Camera models currently recognized by this codebase include:
+
+- Wyze Cam v1 HD
+- Wyze Cam v2
+- Wyze Cam v3
+- Wyze Cam v3 Pro
+- Wyze Cam v4
+- Wyze Cam Pan
+- Wyze Cam Pan v2
+- Wyze Cam Pan v3
+- Wyze Cam Outdoor
+- Wyze Cam Outdoor v2
+
+## Camera Support
+
+Cameras still expose the existing privacy/on-off switch behavior from the upstream plugin. This switch controls the Wyze camera privacy/power state through the Wyze API.
+
+This fork also supports HomeKit camera video when you provide a stream source. Wyze does not provide a stable public live-video endpoint through the account API, so this plugin does not magically pull cloud camera video directly from Wyze. Instead, it accepts a local or network video source and presents it to HomeKit through ffmpeg.
+
+Supported stream input types depend on your ffmpeg build, but typical inputs are:
+
+- RTSP from Wyze RTSP firmware, where available
+- RTSP or HTTP from `docker-wyze-bridge`
+- Another local bridge that exposes the camera as RTSP, HTTP, HLS, or a format ffmpeg can read
+
+Camera streaming is configured per camera MAC address with `cameraStreams`.
+
+## Camera Attachments
+
+For cameras with supported attached accessories, this codebase can expose extra HomeKit services when you list the camera MAC address in the matching config field:
+
+- `garageDoorAccessory`
+- `spotLightAccessory`
+- `floodLightAccessory`
+- `sirenAccessory`
+- `notificationAccessory`
+
+These are opt-in because the Wyze API does not describe every physical attachment in a clean HomeKit-ready way.
 
 ## Configuration
 
-Use the settings UI in Homebridge Config UI X to configure your Wyze account, or manually add the following to the platforms section of your config file:
+Use Homebridge Config UI X, or add this platform block manually to your Homebridge config.
 
-```js
+```json
 {
   "platforms": [
     {
       "platform": "WyzeSmartHome",
       "name": "Wyze",
-      "username": "YOUR_EMAIL",
-      "password": "YOUR_PASSWORD",
-      "keyId": "",
-      "apiKey": "",
+      "username": "YOUR_WYZE_EMAIL",
+      "password": "YOUR_WYZE_PASSWORD",
+      "keyId": "YOUR_WYZE_KEY_ID",
+      "apiKey": "YOUR_WYZE_API_KEY",
+      "refreshInterval": 60000,
       "lowBatteryPercentage": 30,
-      "filterDeviceTypeList": ["OutdoorPlug","Plug"],
-      "filterByMacAddressList": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
-      "garageDoorAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
-      "spotLightAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
-      "alarmAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
-      "notificationAccessory": ["MAC_ADDRESS_1","MAC_ADDRESS_2"],
+      "showAdvancedOptions": true,
+      "pluginLoggingEnabled": false,
+      "apiLogEnabled": false,
+      "garageDoorAccessory": ["CAMERA_MAC_ADDRESS"],
+      "spotLightAccessory": ["CAMERA_MAC_ADDRESS"],
+      "floodLightAccessory": ["CAMERA_MAC_ADDRESS"],
+      "sirenAccessory": ["CAMERA_MAC_ADDRESS"],
+      "notificationAccessory": ["CAMERA_MAC_ADDRESS"],
       "videoProcessor": "ffmpeg",
       "cameraStreams": [
         {
-          "mac": "MAC_ADDRESS_1",
+          "mac": "CAMERA_MAC_ADDRESS",
           "source": "rtsp://user:password@camera-host/live",
           "stillImageSource": "rtsp://user:password@camera-host/live",
           "rtspTransport": "tcp",
-          "audio": false
+          "audio": false,
+          "streamCount": 2
         }
-      ]}
+      ]
+    }
   ]
 }
 ```
 
-Supported devices will be discovered and added to Homebridge automatically.
+## Required Fields
 
-### Required Fields
+- `platform`: Must be `WyzeSmartHome`.
+- `name`: The display name used in Homebridge logs.
+- `username`: Your Wyze account email address.
+- `password`: Your Wyze account password.
+- `keyId`: Wyze developer API key ID.
+- `apiKey`: Wyze developer API key.
 
-* **`username`** &ndash; App email address
-* **`password`** &ndash; App password
-* **`apiKey`** &ndash; Navigate to [this portal](https://developer-api-console.wyze.com/)
-* **`keyId`** &ndash; Navigate to [this portal](https://developer-api-console.wyze.com/), and click Login to sign in to your Wyze account.
-Note: Ensure that the login info you are using matches the info you use when logLevel into the Wyze app.
-Once you’ve signed in, you’ll be automatically redirected back to the developer page.
-Click Create an API key for your API key to be created.
-Once created, you can click view to see the entire key.
-You should receive an email that a new API key has been generated.
-Once you have the API key, you can use it in your script to get the access token and refresh token.
+Wyze API keys are created in the Wyze developer console:
 
-### Optional Fields
+```text
+https://developer-api-console.wyze.com
+```
 
-* **`refreshInterval`** &ndash; Defines how often the status of the devices will be polled in milliseconds (e.g., `"refreshInterval": 60000` will check the status of your devices' status every 60 seconds). Defaults to 60 seconds.
-* **`phoneId`** &ndash; The phone id used by the Wyze App. This value is just found by intercepting your phone's traffic. If no `phoneId` is specified, a default value will be used.
-* **`logLevel`** &ndash; If no `logLevel` is specified, a default value will be used.
-* **`apiLogEnabled`** &ndash; If no `apiLogEnabled` is specified, a default value will be used.
-* **`authApiKey`** &ndash; If no `authApiKey` is specified, a default value will be used.
-* **`appName`** &ndash; If no `appName` is specified, a default value will be used.
-* **`appVer`** &ndash; If no `appVer` is specified, a default value will be used.
-* **`appVersion`** &ndash; If no `appVersion` is specified, a default value will be used.
-* **`userAgent`** &ndash; If no `userAgent` is specified, a default value will be used.
-* **`sc`** &ndash; If no `sc` is specified, a default value will be used.
-* **`sv`** &ndash; If no `sv` is specified, a default value will be used.
-* **`persistPath`** &ndash; If no `persistPath` is specified, a default value will be used.
-* **`refreshTokenTimerEnabled`** &ndash; If no `refreshTokenTimerEnabled` is specified, a default value will be used.
-* **`lowBatteryPercentage`** &ndash; Defines when to show devices with low battery (e.g., `"lowBatteryPercentage": 30`). Defaults to 30%.
-* **`videoProcessor`** &ndash; Path to `ffmpeg`. Leave this as `"ffmpeg"` when Homebridge can already run ffmpeg from its PATH.
-* **`cameraStreams`** &ndash; Optional list of camera stream sources keyed by MAC address. Wyze does not provide a stable public live-video endpoint through the account API, so this plugin expects an RTSP/HTTP input such as official RTSP firmware, a local stream from `docker-wyze-bridge`, or another camera bridge. Each entry supports `mac`, `source`, optional `stillImageSource`, optional `rtspTransport`, optional `videoProcessor`, optional `streamCount`, and `audio`. Audio defaults to disabled because many packaged ffmpeg builds do not include the HomeKit-compatible AAC ELD encoder.
+Use the same Wyze account that owns the devices you want Homebridge to discover.
 
-## Other Info
+## Optional Core Fields
 
-Special thanks to the following projects for reference and inspiration:
+- `refreshInterval`: Polling interval in milliseconds. The schema default is `60000`. The runtime enforces a minimum of `30000`.
+- `hms`: Enables HMS gateway support. Defaults to `false`.
+- `showAdvancedOptions`: Shows advanced configuration fields in Homebridge Config UI X.
+- `apiLogEnabled`: Enables Wyze API logging. Leave this off unless debugging.
+- `pluginLoggingEnabled`: Enables plugin debug logging. This fork redacts known secrets before logging, but you should still avoid enabling verbose logs longer than needed.
+- `lowBatteryPercentage`: Battery threshold used by battery-powered sensors. Defaults to `30`.
 
-- [ha-wyzeapi](https://github.com/JoshuaMulliken/ha-wyzeapi), a Wyze integration for Home Assistant.
-- [wyze-node](https://github.com/noelportugal/wyze-node), a Node library for the Wyze API.
+## Device Filtering
 
-Thanks to [misenhower](https://github.com/misenhower/homebridge-wyze-connected-home) for the original Wyze Homebridge plugin, and thanks to [contributors](https://github.com/misenhower/homebridge-wyze-connected-home/graphs/contributors) and [other developers who were not merged](https://github.com/misenhower/homebridge-wyze-connected-home/pulls) for volunteering their time to help fix bugs and add support for more devices and features.
+This plugin discovers supported devices automatically. You can exclude devices by MAC address or product type.
 
-This plugin is an actively maintained fork of misenhower's original [Wyze Homebridge Plugin](https://github.com/misenhower/homebridge-wyze-connected-home) project.
+- `excludeMacAddress`: Enables MAC-based filtering in the config UI.
+- `filterByMacAddressList`: List of MAC addresses to ignore.
+- `excludedeviceType`: Enables type-based filtering in the config UI.
+- `filterDeviceTypeList`: List of device product types to ignore.
+
+Common product type values include:
+
+- `OutdoorPlug`
+- `Plug`
+- `Light`
+- `MeshLight`
+- `LightStrip`
+- `ContactSensor`
+- `MotionSensor`
+- `Lock`
+- `TemperatureHumidity`
+- `LeakSensor`
+- `Camera`
+- `Common`
+- `S1Gateway`
+- `Thermostat`
+
+## Camera Stream Fields
+
+`cameraStreams` is an array. Each entry maps one Wyze camera MAC address to one ffmpeg-readable source.
+
+- `mac`: The Wyze camera MAC address.
+- `source`: Required stream URL. This can be RTSP, HTTP, or another URL supported by your ffmpeg build.
+- `stillImageSource`: Optional snapshot source. Defaults to `source`.
+- `rtspTransport`: RTSP transport mode. Use `tcp` for the most reliable HomeKit behavior. Use `udp` only if your network/source needs it.
+- `audio`: Enables HomeKit audio. Defaults to `false`. Many ffmpeg builds do not include the AAC ELD encoder HomeKit expects, so video-only is the safer default.
+- `streamCount`: Number of concurrent HomeKit camera streams. Defaults to `2`.
+- `videoProcessor`: Optional per-camera ffmpeg path. If omitted, the top-level `videoProcessor` value is used.
+
+Top-level `videoProcessor` defaults to:
+
+```text
+ffmpeg
+```
+
+Set it to a full path if Homebridge cannot find ffmpeg in its PATH.
+
+## Security Notes
+
+This fork includes a safer logging path in `src/WyzeSmartHome.js`.
+
+The logger redacts:
+
+- Wyze password
+- Wyze API key and key ID
+- MFA code
+- common token/secret fields
+- camera stream URLs
+- usernames/passwords embedded in RTSP, HTTP, or HTTPS URLs
+
+The Homebridge config schema also marks credentials and camera stream URLs as password-style fields so Config UI X treats them more carefully.
+
+Even with redaction, treat Homebridge logs as sensitive when camera streaming or API debugging is enabled.
+
+## Performance Notes
+
+This fork adds a few targeted efficiency changes:
+
+- Accessory lookup is indexed by MAC address.
+- Device filters are stored as `Set`s.
+- Camera stream configs are indexed by MAC address.
+- Supported model checks use cached `Set`s instead of rebuilding arrays during each refresh.
+- Removed the infinite refresh loop in favor of a shutdown-aware loop.
+
+These changes are meant to keep polling responsive without changing the public behavior of the plugin.
+
+## Development
+
+Install dependencies before running lint or local Homebridge tests:
+
+```sh
+npm install
+```
+
+Run lint:
+
+```sh
+npm run lint
+```
+
+Basic syntax checks can be run with Node:
+
+```sh
+node --check src/WyzeSmartHome.js
+node --check src/accessories/WyzeCamera.js
+node --check src/accessories/WyzeCameraStreamingDelegate.js
+```
+
+## Known Limitations
+
+- Live camera video requires a stream source. The Wyze account API alone is not enough.
+- Audio is disabled by default because HomeKit audio support depends heavily on the local ffmpeg build.
+- The Wyze API is unofficial and may change.
+- Some camera attachments must be enabled manually by MAC address.
+- The package metadata still follows the upstream package name, `homebridge-wyze-smart-home`, unless you choose to rename and publish this fork separately.
+
+## Credits
+
+This fork is based on [jfarmer08/homebridge-wyze-smart-home](https://github.com/jfarmer08/homebridge-wyze-smart-home).
+
+The upstream project traces back to the original Wyze Homebridge work by [misenhower/homebridge-wyze-connected-home](https://github.com/misenhower/homebridge-wyze-connected-home), with additional inspiration from Wyze community integrations and API clients.
