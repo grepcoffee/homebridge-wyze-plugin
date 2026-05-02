@@ -1,5 +1,12 @@
 const crypto = require("crypto");
 const { spawn } = require("child_process");
+const { createSocket } = require("dgram");
+let ffmpegForHomebridge;
+try {
+  ffmpegForHomebridge = require("ffmpeg-for-homebridge");
+} catch {
+  ffmpegForHomebridge = null;
+}
 const {
   SRTPCryptoSuites,
   H264Profile,
@@ -8,11 +15,11 @@ const {
   AudioStreamingSamplerate,
 } = require("../types");
 
-const VIDEO_RTP_PAYLOAD_TYPE = 99;
-const AUDIO_RTP_PAYLOAD_TYPE = 110;
 const DEFAULT_MAX_BITRATE = 299;
+const DEFAULT_AUDIO_BITRATE = 24;
 const DEFAULT_PACKET_SIZE = 1316;
 const SNAPSHOT_TIMEOUT_MS = 15000;
+const PENDING_SESSION_TIMEOUT_MS = 30000;
 const MAX_LOG_LENGTH = 2000;
 
 module.exports = class WyzeCameraStreamingDelegate {
@@ -33,11 +40,26 @@ module.exports = class WyzeCameraStreamingDelegate {
   }
 
   get videoProcessor() {
-    return this.streamConfig.videoProcessor || this.plugin.config.videoProcessor || "ffmpeg";
+    return (
+      this.streamConfig.ffmpegPath ||
+      this.streamConfig.videoProcessor ||
+      this.plugin.config.ffmpegPath ||
+      this.plugin.config.videoProcessor ||
+      ffmpegForHomebridge ||
+      "ffmpeg"
+    );
   }
 
   get logLevel() {
-    return this.plugin.config.pluginLoggingEnabled ? "warning" : "error";
+    if (this.streamConfig.debug || this.plugin.config.debug) {
+      return "info";
+    }
+
+    if (this.plugin.config.pluginLoggingEnabled) {
+      return "warning";
+    }
+
+    return "error";
   }
 
   get includeAudio() {
@@ -92,42 +114,64 @@ module.exports = class WyzeCameraStreamingDelegate {
     return options;
   }
 
-  prepareStream(request, callback) {
-    const sessionInfo = {
-      address: request.targetAddress,
-      ipv6: request.addressVersion === "ipv6",
-      videoPort: request.video.port,
-      videoCryptoSuite: request.video.srtpCryptoSuite,
-      videoKey: request.video.srtp_key,
-      videoSalt: request.video.srtp_salt,
-      videoSSRC: this.generateSSRC(),
-      audioSSRC: this.generateSSRC(),
-    };
-
-    const response = {
-      video: {
-        port: request.video.port,
-        ssrc: sessionInfo.videoSSRC,
-        srtp_key: request.video.srtp_key,
-        srtp_salt: request.video.srtp_salt,
-      },
-    };
-
-    if (request.audio) {
-      sessionInfo.audioPort = request.audio.port;
-      sessionInfo.audioCryptoSuite = request.audio.srtpCryptoSuite;
-      sessionInfo.audioKey = request.audio.srtp_key;
-      sessionInfo.audioSalt = request.audio.srtp_salt;
-      response.audio = {
-        port: request.audio.port,
-        ssrc: sessionInfo.audioSSRC,
-        srtp_key: request.audio.srtp_key,
-        srtp_salt: request.audio.srtp_salt,
+  async prepareStream(request, callback) {
+    let videoReturn;
+    try {
+      const ipv6 = request.addressVersion === "ipv6";
+      videoReturn = await this.reserveReturnPort(ipv6);
+      const sessionInfo = {
+        address: request.targetAddress,
+        ipv6,
+        videoPort: request.video.port,
+        videoReturnPort: videoReturn.port,
+        videoReturnSocket: videoReturn.socket,
+        videoCryptoSuite: request.video.srtpCryptoSuite,
+        videoKey: request.video.srtp_key,
+        videoSalt: request.video.srtp_salt,
+        videoSSRC: this.generateSSRC(),
+        pendingTimer: null,
       };
-    }
 
-    this.pendingSessions.set(request.sessionID, sessionInfo);
-    callback(null, response);
+      const response = {
+        video: {
+          port: sessionInfo.videoReturnPort,
+          ssrc: sessionInfo.videoSSRC,
+          srtp_key: request.video.srtp_key,
+          srtp_salt: request.video.srtp_salt,
+        },
+      };
+
+      if (this.includeAudio && request.audio) {
+        const audioReturn = await this.reserveReturnPort(ipv6);
+        sessionInfo.audioPort = request.audio.port;
+        sessionInfo.audioReturnPort = audioReturn.port;
+        sessionInfo.audioReturnSocket = audioReturn.socket;
+        sessionInfo.audioCryptoSuite = request.audio.srtpCryptoSuite;
+        sessionInfo.audioKey = request.audio.srtp_key;
+        sessionInfo.audioSalt = request.audio.srtp_salt;
+        sessionInfo.audioSSRC = this.generateSSRC();
+        response.audio = {
+          port: sessionInfo.audioReturnPort,
+          ssrc: sessionInfo.audioSSRC,
+          srtp_key: request.audio.srtp_key,
+          srtp_salt: request.audio.srtp_salt,
+        };
+      }
+
+      sessionInfo.pendingTimer = setTimeout(() => {
+        if (this.pendingSessions.delete(request.sessionID)) {
+          this.closeSessionSockets(sessionInfo);
+        }
+      }, PENDING_SESSION_TIMEOUT_MS);
+
+      this.pendingSessions.set(request.sessionID, sessionInfo);
+      callback(undefined, response);
+    } catch (error) {
+      if (videoReturn?.socket) {
+        this.closeSessionSockets({ videoReturnSocket: videoReturn.socket });
+      }
+      callback(error);
+    }
   }
 
   handleStreamRequest(request, callback) {
@@ -198,7 +242,7 @@ module.exports = class WyzeCameraStreamingDelegate {
     });
     ffmpeg.on("close", (code) => {
       if (code === 0) {
-        finish(null, Buffer.concat(chunks));
+        finish(undefined, Buffer.concat(chunks));
       } else {
         finish(new Error(`Snapshot failed for ${this.accessory.display_name}: ${this.redact(stderr) || code}`));
       }
@@ -223,6 +267,7 @@ module.exports = class WyzeCameraStreamingDelegate {
     const audioParams = sessionInfo.audioKey && sessionInfo.audioSalt
       ? Buffer.concat([sessionInfo.audioKey, sessionInfo.audioSalt]).toString("base64")
       : null;
+    const videoPayloadType = video.pt || 99;
 
     const args = [
       "-hide_banner",
@@ -258,7 +303,7 @@ module.exports = class WyzeCameraStreamingDelegate {
       "-s",
       `${width}x${height}`,
       "-payload_type",
-      `${VIDEO_RTP_PAYLOAD_TYPE}`,
+      `${videoPayloadType}`,
       "-ssrc",
       `${sessionInfo.videoSSRC}`,
       "-f",
@@ -267,10 +312,16 @@ module.exports = class WyzeCameraStreamingDelegate {
       "AES_CM_128_HMAC_SHA1_80",
       "-srtp_out_params",
       videoParams,
-      `srtp://${address}:${sessionInfo.videoPort}?rtcpport=${sessionInfo.videoPort}&localrtcpport=${sessionInfo.videoPort}&pkt_size=${packetSize}`,
+      `srtp://${address}:${sessionInfo.videoPort}?rtcpport=${sessionInfo.videoPort}&pkt_size=${packetSize}`,
     ];
 
-    if (this.includeAudio && audioParams) {
+    if (this.includeAudio && audioParams && request.audio) {
+      const audio = request.audio;
+      const audioPayloadType = audio.pt || 110;
+      const audioSampleRate = audio.sample_rate || 16;
+      const audioBitrate = audio.max_bit_rate || DEFAULT_AUDIO_BITRATE;
+      const audioChannels = audio.channel || 1;
+
       args.push(
         "-vn",
         "-sn",
@@ -280,11 +331,13 @@ module.exports = class WyzeCameraStreamingDelegate {
         "-profile:a",
         "aac_eld",
         "-ar",
-        "16k",
+        `${audioSampleRate}k`,
         "-b:a",
-        "24k",
+        `${audioBitrate}k`,
+        "-ac",
+        `${audioChannels}`,
         "-payload_type",
-        `${AUDIO_RTP_PAYLOAD_TYPE}`,
+        `${audioPayloadType}`,
         "-ssrc",
         `${sessionInfo.audioSSRC}`,
         "-f",
@@ -293,12 +346,18 @@ module.exports = class WyzeCameraStreamingDelegate {
         "AES_CM_128_HMAC_SHA1_80",
         "-srtp_out_params",
         audioParams,
-        `srtp://${address}:${sessionInfo.audioPort}?rtcpport=${sessionInfo.audioPort}&localrtcpport=${sessionInfo.audioPort}&pkt_size=${packetSize}`
+        `srtp://${address}:${sessionInfo.audioPort}?rtcpport=${sessionInfo.audioPort}&pkt_size=${packetSize}`
       );
     }
 
     const ffmpeg = this.spawnFfmpeg(args);
-    this.ongoingSessions.set(request.sessionID, ffmpeg);
+    clearTimeout(sessionInfo.pendingTimer);
+    this.pendingSessions.delete(request.sessionID);
+    this.ongoingSessions.set(request.sessionID, {
+      ffmpeg,
+      videoReturnSocket: sessionInfo.videoReturnSocket,
+      audioReturnSocket: sessionInfo.audioReturnSocket,
+    });
 
     ffmpeg.stderr.on("data", (data) => {
       if (this.plugin.config.pluginLoggingEnabled) {
@@ -316,6 +375,10 @@ module.exports = class WyzeCameraStreamingDelegate {
     });
 
     ffmpeg.on("close", () => {
+      const session = this.ongoingSessions.get(request.sessionID);
+      if (session) {
+        this.closeSessionSockets(session);
+      }
       this.pendingSessions.delete(request.sessionID);
       this.ongoingSessions.delete(request.sessionID);
     });
@@ -324,12 +387,62 @@ module.exports = class WyzeCameraStreamingDelegate {
   }
 
   stopStream(sessionID) {
-    const ffmpeg = this.ongoingSessions.get(sessionID);
+    const pendingSession = this.pendingSessions.get(sessionID);
+    const session = this.ongoingSessions.get(sessionID);
     this.pendingSessions.delete(sessionID);
     this.ongoingSessions.delete(sessionID);
 
-    if (ffmpeg) {
-      ffmpeg.kill("SIGTERM");
+    if (pendingSession) {
+      clearTimeout(pendingSession.pendingTimer);
+      this.closeSessionSockets(pendingSession);
+    }
+
+    if (session) {
+      this.closeSessionSockets(session);
+      session.ffmpeg.kill("SIGTERM");
+    }
+  }
+
+  reserveReturnPort(ipv6) {
+    return new Promise((resolve, reject) => {
+      const socket = createSocket(ipv6 ? "udp6" : "udp4");
+      const cleanup = () => {
+        socket.removeAllListeners("error");
+        socket.removeAllListeners("listening");
+      };
+
+      socket.once("error", (error) => {
+        cleanup();
+        try {
+          socket.close();
+        } catch {
+          // Socket may already be closed after an error.
+        }
+        reject(error);
+      });
+
+      socket.once("listening", () => {
+        const address = socket.address();
+        cleanup();
+        resolve({
+          socket,
+          port: address.port,
+        });
+      });
+
+      socket.bind(0, ipv6 ? "::" : "0.0.0.0");
+    });
+  }
+
+  closeSessionSockets(session) {
+    for (const socket of [session.videoReturnSocket, session.audioReturnSocket]) {
+      if (socket) {
+        try {
+          socket.close();
+        } catch {
+          // Ignore sockets that have already been closed.
+        }
+      }
     }
   }
 

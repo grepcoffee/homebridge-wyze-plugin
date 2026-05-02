@@ -27,14 +27,15 @@
             "keyId": "keyID",
             "apiKey": "apiKey",
             "refreshInterval": 20000,
-            "videoProcessor": "ffmpeg",
+            "ffmpegPath": "",
             "cameraStreams": [
                 {
                     "mac": "CAMERA_MAC_ADDRESS",
                     "source": "rtsp://user:password@camera-host/live",
                     "stillImageSource": "rtsp://user:password@camera-host/live",
                     "rtspTransport": "tcp",
-                    "audio": false
+                    "audio": false,
+                    "debug": false
                 }
             ],
             "entryExitDelay": 30,

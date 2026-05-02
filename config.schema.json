@@ -82,6 +82,15 @@
           "functionBody": "return model.showAdvancedOptions === true;"
         }
       },
+      "debug": {
+        "title": "Enable Camera Streaming Debug Logging",
+        "description": "Enables more verbose ffmpeg logging for camera stream troubleshooting. Stream URLs and credentials are redacted before plugin logs are written.",
+        "type": "boolean",
+        "default": false,
+        "condition": {
+          "functionBody": "return model.showAdvancedOptions === true;"
+        }
+      },
       "lowBatteryPercentage": {
         "title": "Low Battery Percentage",
         "description": "Specify the Percentage of battery when consider low, default is 30%",
@@ -152,9 +161,16 @@
       },
       "videoProcessor": {
         "title": "Video Processor",
-        "description": "Path to ffmpeg. Leave as ffmpeg when it is available in Homebridge's PATH.",
+        "description": "Legacy path to ffmpeg. Prefer ffmpegPath for new configs.",
         "type": "string",
-        "default": "ffmpeg",
+        "condition": {
+          "functionBody": "return model.showAdvancedOptions === true;"
+        }
+      },
+      "ffmpegPath": {
+        "title": "FFmpeg Path",
+        "description": "Optional path to ffmpeg. If omitted, the plugin uses ffmpeg-for-homebridge when available, then falls back to ffmpeg from PATH.",
+        "type": "string",
         "condition": {
           "functionBody": "return model.showAdvancedOptions === true;"
         }
@@ -213,8 +229,19 @@
               "minimum": 1,
               "maximum": 4
             },
+            "debug": {
+              "title": "Enable Debug Logging",
+              "description": "Enables more verbose ffmpeg logging for this camera stream.",
+              "type": "boolean",
+              "default": false
+            },
             "videoProcessor": {
               "title": "Video Processor",
+              "description": "Legacy optional per-camera ffmpeg path. Prefer ffmpegPath for new configs.",
+              "type": "string"
+            },
+            "ffmpegPath": {
+              "title": "FFmpeg Path",
               "description": "Optional per-camera ffmpeg path.",
               "type": "string"
             }

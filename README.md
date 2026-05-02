@@ -2,7 +2,7 @@
 
 This repository is a fork of [jfarmer08/homebridge-wyze-smart-home](https://github.com/jfarmer08/homebridge-wyze-smart-home).
 
-This fork keeps the original Wyze Smart Home device support and adds codebase-specific work around camera streaming, safer logging, faster accessory lookup, and Node 24 compatibility.
+This fork keeps the original Wyze Smart Home device support and adds codebase-specific work around camera streaming, safer logging, faster accessory lookup, and Node 24 compatibility. Camera streaming is modeled after the Homebridge camera pattern used by plugins like `homebridge-ring`: HomeKit gets a real camera accessory with snapshots and live video, while ffmpeg handles the media conversion.
 
 ## What This Plugin Does
 
@@ -71,6 +71,16 @@ Cameras still expose the existing privacy/on-off switch behavior from the upstre
 
 This fork also supports HomeKit camera video when you provide a stream source. Wyze does not provide a stable public live-video endpoint through the account API, so this plugin does not magically pull cloud camera video directly from Wyze. Instead, it accepts a local or network video source and presents it to HomeKit through ffmpeg.
 
+When `cameraStreams` is configured, the camera appears in HomeKit as a camera tile with:
+
+- live video
+- Home app snapshots
+- optional one-way audio, when your source and ffmpeg build support it
+- per-camera stream limits with `streamCount`
+- optional ffmpeg debug logging
+
+This fork bundles `ffmpeg-for-homebridge`, so most users should not need to install ffmpeg separately. If the bundled binary is unavailable on your platform, the plugin falls back to `ffmpeg` from PATH. You can override either behavior with `ffmpegPath`.
+
 Supported stream input types depend on your ffmpeg build, but typical inputs are:
 
 - RTSP from Wyze RTSP firmware, where available
@@ -78,6 +88,10 @@ Supported stream input types depend on your ffmpeg build, but typical inputs are
 - Another local bridge that exposes the camera as RTSP, HTTP, HLS, or a format ffmpeg can read
 
 Camera streaming is configured per camera MAC address with `cameraStreams`.
+
+Two-way talk is not currently implemented. Ring can send talkback audio through Ring's own camera APIs, but a generic Wyze RTSP or bridge stream usually does not expose a reliable talkback target for this plugin to write to.
+
+HomeKit Secure Video is not implemented by this fork.
 
 ## Camera Attachments
 
@@ -115,7 +129,8 @@ Use Homebridge Config UI X, or add this platform block manually to your Homebrid
       "floodLightAccessory": ["CAMERA_MAC_ADDRESS"],
       "sirenAccessory": ["CAMERA_MAC_ADDRESS"],
       "notificationAccessory": ["CAMERA_MAC_ADDRESS"],
-      "videoProcessor": "ffmpeg",
+      "ffmpegPath": "",
+      "debug": false,
       "cameraStreams": [
         {
           "mac": "CAMERA_MAC_ADDRESS",
@@ -123,7 +138,8 @@ Use Homebridge Config UI X, or add this platform block manually to your Homebrid
           "stillImageSource": "rtsp://user:password@camera-host/live",
           "rtspTransport": "tcp",
           "audio": false,
-          "streamCount": 2
+          "streamCount": 2,
+          "debug": false
         }
       ]
     }
@@ -155,6 +171,7 @@ Use the same Wyze account that owns the devices you want Homebridge to discover.
 - `showAdvancedOptions`: Shows advanced configuration fields in Homebridge Config UI X.
 - `apiLogEnabled`: Enables Wyze API logging. Leave this off unless debugging.
 - `pluginLoggingEnabled`: Enables plugin debug logging. This fork redacts known secrets before logging, but you should still avoid enabling verbose logs longer than needed.
+- `debug`: Enables more verbose camera streaming/ffmpeg logging. Stream URLs and credentials are redacted before plugin logs are written.
 - `lowBatteryPercentage`: Battery threshold used by battery-powered sensors. Defaults to `30`.
 
 ## Device Filtering
@@ -193,15 +210,25 @@ Common product type values include:
 - `rtspTransport`: RTSP transport mode. Use `tcp` for the most reliable HomeKit behavior. Use `udp` only if your network/source needs it.
 - `audio`: Enables HomeKit audio. Defaults to `false`. Many ffmpeg builds do not include the AAC ELD encoder HomeKit expects, so video-only is the safer default.
 - `streamCount`: Number of concurrent HomeKit camera streams. Defaults to `2`.
-- `videoProcessor`: Optional per-camera ffmpeg path. If omitted, the top-level `videoProcessor` value is used.
+- `debug`: Enables verbose ffmpeg logging for this camera.
+- `ffmpegPath`: Optional per-camera ffmpeg path. If omitted, the top-level `ffmpegPath` value is used.
+- `videoProcessor`: Legacy alias for `ffmpegPath`. It still works for older configs.
 
-Top-level `videoProcessor` defaults to:
+Top-level `ffmpegPath` is optional. Leave it blank to use the bundled `ffmpeg-for-homebridge` binary when available.
+
+If you want to force a system ffmpeg, set:
+
+```text
+/usr/bin/ffmpeg
+```
+
+or:
 
 ```text
 ffmpeg
 ```
 
-Set it to a full path if Homebridge cannot find ffmpeg in its PATH.
+`videoProcessor` is still accepted as a legacy top-level setting, but new configs should use `ffmpegPath`.
 
 ## Security Notes
 
@@ -257,7 +284,9 @@ node --check src/accessories/WyzeCameraStreamingDelegate.js
 ## Known Limitations
 
 - Live camera video requires a stream source. The Wyze account API alone is not enough.
-- Audio is disabled by default because HomeKit audio support depends heavily on the local ffmpeg build.
+- Audio is disabled by default because HomeKit audio support depends on the input stream and ffmpeg audio encoder support.
+- Two-way talk is not supported because generic Wyze RTSP/bridge sources do not provide a dependable talkback API.
+- HomeKit Secure Video is not supported.
 - The Wyze API is unofficial and may change.
 - Some camera attachments must be enabled manually by MAC address.
 - The package name for this fork is `homebridge-wyze-plugin`.
