@@ -260,7 +260,7 @@ node --check src/accessories/WyzeCameraStreamingDelegate.js
 - Audio is disabled by default because HomeKit audio support depends heavily on the local ffmpeg build.
 - The Wyze API is unofficial and may change.
 - Some camera attachments must be enabled manually by MAC address.
-- The package metadata still follows the upstream package name, `homebridge-wyze-smart-home`, unless you choose to rename and publish this fork separately.
+- The package name for this fork is `homebridge-wyze-plugin`.
 
 ## Credits
 

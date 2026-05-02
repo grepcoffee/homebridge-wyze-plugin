@@ -1,5 +1,5 @@
 {
-  "name": "homebridge-wyze-smart-home",
+  "name": "homebridge-wyze-plugin",
   "version": "0.5.47",
   "description": "Wyze Smart Home plugin for Homebridge",
   "license": "MIT",
